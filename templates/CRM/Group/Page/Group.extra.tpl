@@ -25,7 +25,7 @@ function mailchimpGroupsPageAlter() {
 {/literal}
 {if $action eq 16}
 {* action 16 is VIEW, i.e. the Manage Groups page.*}
-CRM.$(mailchimpGroupsPageAlter);
+{* CRM.$(mailchimpGroupsPageAlter); *}
 {/if}
 </script>
 
