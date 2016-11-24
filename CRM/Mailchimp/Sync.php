@@ -282,7 +282,7 @@ class CRM_Mailchimp_Sync {
     $start = microtime(TRUE);
 
     $collected = 0;
-    $insert = $db->prepare('INSERT INTO tmp_mailchimp_push_c VALUES(?, ?, ?, ?, ?, ?)');
+    $insert = $db->prepare('INSERT IGNORE INTO tmp_mailchimp_push_c VALUES(?, ?, ?, ?, ?, ?)');
     // Loop contacts:
     foreach ($result['values'] as $id=>$contact) {
       // Which email to use?
