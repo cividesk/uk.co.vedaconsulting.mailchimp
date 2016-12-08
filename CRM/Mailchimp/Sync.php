@@ -738,6 +738,7 @@ class CRM_Mailchimp_Sync {
             'first_name'   => $dao->first_name,
             'last_name'    => $dao->last_name,
             'email'        => $dao->email,
+            'source'       => 'From MailChimp',
             'sequential'   => 1,
             ]);
           $contact_id = $result['values'][0]['id'];
