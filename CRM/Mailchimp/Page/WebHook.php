@@ -402,6 +402,7 @@ class CRM_Mailchimp_Page_WebHook extends CRM_Core_Page {
           'contact_type' => 'Individual',
           'first_name' => $this->request_data['merges']['FNAME'],
           'last_name'  => $this->request_data['merges']['LNAME'],
+          'source'     => 'From MailChimp',
         ]);
         if (!$result['id']) {
           throw new RuntimeException("Failed to create contact", 500);
