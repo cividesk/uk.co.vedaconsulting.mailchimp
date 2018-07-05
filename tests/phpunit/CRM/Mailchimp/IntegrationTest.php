@@ -1,9 +1,28 @@
 <?php
+
+use CRM_Mailchimp_ExtensionUtil as E;
+use Civi\Test\EndToEndInterface;
+
 /**
- * @file
- * Contains code for generating fixtures shared between tests.
+ * FIXME - Add test description.
+ *
+ * Tips:
+ *  - The global variable $_CV has some properties which may be useful, such as:
+ *    CMS_URL, ADMIN_USER, ADMIN_PASS, ADMIN_EMAIL, DEMO_USER, DEMO_PASS, DEMO_EMAIL.
+ *  - To spawn a new CiviCRM thread and execute an API call or PHP code, use cv(), e.g.
+ *      cv('api system.flush');
+ *      $data = cv('eval "return Civi::settings()->get(\'foobar\')"');
+ *      $dashboardUrl = cv('url civicrm/dashboard');
+ *  - This template uses the most generic base-class, but you may want to use a more
+ *    powerful base class, such as \PHPUnit_Extensions_SeleniumTestCase or
+ *    \PHPUnit_Extensions_Selenium2TestCase.
+ *    See also: https://phpunit.de/manual/4.8/en/selenium.html
+ *
+ * @group e2e
+ * @see cv
  */
-class CRM_Mailchimp_IntegrationTestBase extends \PHPUnit_Framework_TestCase {
+class CRM_Mailchimp_IntegrationTest extends \PHPUnit_Framework_TestCase implements EndToEndInterface {
+
   const
     MC_TEST_LIST_NAME = 'Mailchimp-CiviCRM Integration Test List',
     MC_INTEREST_CATEGORY_TITLE = 'Test Interest Category',
@@ -12,10 +31,14 @@ class CRM_Mailchimp_IntegrationTestBase extends \PHPUnit_Framework_TestCase {
     C_TEST_MEMBERSHIP_GROUP_NAME = 'mailchimp_integration_test_m',
     C_TEST_INTEREST_GROUP_NAME_1 = 'mailchimp_integration_test_i1',
     C_TEST_INTEREST_GROUP_NAME_2 = 'mailchimp_integration_test_i2',
-    C_CONTACT_1_FIRST_NAME = 'Wilma',
-    C_CONTACT_1_LAST_NAME = 'Flintstone-Test-Record',
-    C_CONTACT_2_FIRST_NAME = 'Barney',
-    C_CONTACT_2_LAST_NAME = 'Rubble-Test-Record'
+    C_CONTACT_1_FIRST_NAME = 'Gopi',
+    C_CONTACT_1_LAST_NAME = 'Mailchimp-Test',
+    C_CONTACT_2_FIRST_NAME = 'Krishna',
+    C_CONTACT_2_LAST_NAME = 'Mailchimp-Test',
+
+    // Multiple interests groups
+    MC_MULTIPLE_INTEREST_NAME = 'Mul Interest No.',
+    C_TEST_MULTIPLE_INTEREST_GROUP_NAME = 'mailchimp_integration_test_int'
     ;
   protected static $api_contactable;
   /** string holds the Mailchimp Id for our test list. */
@@ -38,6 +61,15 @@ class CRM_Mailchimp_IntegrationTestBase extends \PHPUnit_Framework_TestCase {
   /** holds CiviCRM Group Id for interest group id*/
   protected static $civicrm_group_id_interest_2;
 
+  /** auto number */
+  protected static $auto_number = 1;
+  /** Number of intersts amd civicrm groups to create */
+  protected static $no_of_records = 12;
+  /** array holds the Interests Ids for test multiple interests. */
+  protected static $test_multiple_interest_ids = array();
+  /** array holds CiviCRM Group Ids for multiple interest group ids. */
+  protected static $civicrm_multiple_group_id_interests  = array();
+
   /**
    * array Test contact 1
    */
@@ -45,8 +77,8 @@ class CRM_Mailchimp_IntegrationTestBase extends \PHPUnit_Framework_TestCase {
     'contact_id' => NULL,
     'first_name' => self::C_CONTACT_1_FIRST_NAME,
     'last_name' => self::C_CONTACT_1_LAST_NAME,
-    ];
-  
+  ];
+
   /**
    * array Test contact 2
    */
@@ -54,7 +86,8 @@ class CRM_Mailchimp_IntegrationTestBase extends \PHPUnit_Framework_TestCase {
     'contact_id' => NULL,
     'first_name' => self::C_CONTACT_2_FIRST_NAME,
     'last_name' => self::C_CONTACT_2_LAST_NAME,
-    ];
+  ];
+
 
   /** custom_N name for this field */
   protected static $custom_mailchimp_group;
@@ -65,13 +98,36 @@ class CRM_Mailchimp_IntegrationTestBase extends \PHPUnit_Framework_TestCase {
   /** custom_N name for this field */
   protected static $custom_is_mc_update_grouping;
 
-  // Shared helper functions.
+  public static function setUpBeforeClass() {
+    // See: https://github.com/civicrm/org.civicrm.testapalooza/blob/master/civi-test.md
+
+    // Example: Install this extension. Don't care about anything else.
+    // \Civi\Test::e2e()->installMe(__DIR__)->apply();
+
+    // Example: Uninstall all extensions except this one.
+    // \Civi\Test::e2e()->uninstall('*')->installMe(__DIR__)->apply();
+
+    // Example: Install only core civicrm extensions.
+    // \Civi\Test::e2e()->uninstall('*')->install('org.civicrm.*')->apply();
+  }
+
+  public function setUp() {
+    parent::setUp();
+  }
+
+  public function tearDown() {
+    static::tearDownMailchimpFixtures();
+    static::tearDownCiviCrmFixtures();
+    static::tearDownCiviCrmFixtureContacts();
+    parent::tearDown();
+  }
+
   /**
    * Connect to API and create test fixture list.
    *
    * Creates one list with one interest category and two interests.
    */
-  public static function createMailchimpFixtures() {
+  public static function testcreateMailchimpFixtures() {
     try {
       $api = CRM_Mailchimp_Utils::getMailchimpApi();
       $result = $api->get('/');
@@ -136,6 +192,7 @@ class CRM_Mailchimp_IntegrationTestBase extends \PHPUnit_Framework_TestCase {
       // Store thet interest ids.
       static::$test_interest_id_1 = static::createInterest(static::MC_INTEREST_NAME_1);
       static::$test_interest_id_2 = static::createInterest(static::MC_INTEREST_NAME_2);
+
     }
     catch (CRM_Mailchimp_Exception $e) {
       // Spit out request and response for debugging.
@@ -147,7 +204,31 @@ class CRM_Mailchimp_IntegrationTestBase extends \PHPUnit_Framework_TestCase {
       throw $e;
     }
   }
-  
+
+  /**
+   *
+   * Creates multiple interests.
+   */
+  /*public static function testCreateMultipleInterestsMC() {
+  	// Create multiple interests and store the ids
+    for ($i=0; $i < static::$no_of_records; $i++) {
+      $interestName = static::MC_MULTIPLE_INTEREST_NAME.'_'.static::$auto_number;
+      $test_interest_id = static::createInterest($interestName);
+      static::$test_multiple_interest_ids[$i] = array(
+        'id' => $test_interest_id,
+        'name' => $interestName
+      );
+
+      // create mapped civicrm Group
+      $interestGroupName = static::C_TEST_MULTIPLE_INTEREST_GROUP_NAME.'_'.static::$auto_number;
+      $civicrm_group_id = (int) static::createMappedInterestGroup($custom_ids, $interestGroupName, $test_interest_id);
+      static::$civicrm_multiple_group_id_interests[] =  $civicrm_group_id;
+
+      static::$auto_number++;
+    }
+
+  }*/
+
   /**
    * Create an interest within our interest category on the Mailchimp list.
    *
@@ -197,7 +278,7 @@ class CRM_Mailchimp_IntegrationTestBase extends \PHPUnit_Framework_TestCase {
     }
     return $interest_id;
   }
-  
+
   /**
    * Creates CiviCRM fixtures.
    *
@@ -210,13 +291,13 @@ class CRM_Mailchimp_IntegrationTestBase extends \PHPUnit_Framework_TestCase {
    * Can be run multiple times without creating multiple fixtures.
    *
    */
-  public static function createCiviCrmFixtures() {
+  public static function testcreateCiviCrmFixtures() {
     //
     // Now set up the CiviCRM fixtures.
     //
 
     // Ensure we have a security key configured.
-    $key = CRM_Mailchimp_Utils::getSettingValue('security_key');
+    $key = CRM_Core_BAO_Setting::getItem(CRM_Mailchimp_Form_Setting::MC_SETTING_GROUP, 'security_key', NULL, FALSE);
     if (!$key) {
       // Create a random key.
       CRM_Core_BAO_Setting::setItem( md5(time() . 'Something unique'), CRM_Mailchimp_Form_Setting::MC_SETTING_GROUP, 'security_key');
@@ -278,7 +359,7 @@ class CRM_Mailchimp_IntegrationTestBase extends \PHPUnit_Framework_TestCase {
       ];
     static::createTestContact(static::$civicrm_contact_2);
   }
-  
+
   /**
    * Create a contact in CiviCRM
    *
@@ -314,7 +395,7 @@ class CRM_Mailchimp_IntegrationTestBase extends \PHPUnit_Framework_TestCase {
     $contact['contact_id'] = (int) $result['values'][0]['id'];
     return $contact;
   }
-  
+
   /**
    * Create a group in CiviCRM that maps to the interest group name.
    *
@@ -341,7 +422,7 @@ class CRM_Mailchimp_IntegrationTestBase extends \PHPUnit_Framework_TestCase {
 
     return $group_id;
   }
-  
+
   /**
    * Remove the test list, if one was successfully set up.
    */
@@ -364,7 +445,8 @@ class CRM_Mailchimp_IntegrationTestBase extends \PHPUnit_Framework_TestCase {
       // contacts.
       $api = CRM_Mailchimp_Utils::getMailchimpApi();
       $test_list_id = static::$test_list_id;
-      $result = $api->get("/lists/$test_list_id", ['fields' => '']);
+      $result = $api->get("/lists/$test_list_id");
+
       if ($result->http_code != 200) {
         throw new CRM_Mailchimp_RequestErrorException($api, "Trying to delete test list $test_list_id but getting list details failed. ");
       }
@@ -387,7 +469,6 @@ class CRM_Mailchimp_IntegrationTestBase extends \PHPUnit_Framework_TestCase {
       if ($result->http_code != 204) {
         throw new CRM_Mailchimp_RequestErrorException($api, "Trying to delete test list $test_list_id but delete method did not return 204 as http response. ");
       }
-
     }
     catch (CRM_Mailchimp_Exception $e) {
       print "*** Exception!***\n" . $e->getMessage() . "\n";
@@ -400,7 +481,7 @@ class CRM_Mailchimp_IntegrationTestBase extends \PHPUnit_Framework_TestCase {
       throw $e;
     }
   }
-  
+
   /**
    * Strip out all test fixtures from CiviCRM.
    *
@@ -418,7 +499,7 @@ class CRM_Mailchimp_IntegrationTestBase extends \PHPUnit_Framework_TestCase {
       $result = civicrm_api3('Group', 'delete', ['id' => static::$civicrm_group_id_membership]);
     }
   }
-  
+
   /**
    * Strip out CivCRM test contacts.
    */
@@ -475,172 +556,5 @@ class CRM_Mailchimp_IntegrationTestBase extends \PHPUnit_Framework_TestCase {
       }
     }
   }
-  
-  /**
-   * Check that the contact's email is a member in given state.
-   *
-   * @param array $contact e.g. static::$civicrm_contact_1
-   * @param string $state Mailchimp member state: 'subscribed', 'unsubscribed', ...
-   */
-  public function assertContactExistsWithState($contact, $state) {
-    $api = CRM_Mailchimp_Utils::getMailchimpApi();
-    try {
-      $result = $api->get("/lists/" . static::$test_list_id . "/members/$contact[subscriber_hash]", ['fields' => 'status']);
-    }
-    catch (CRM_Mailchimp_RequestErrorException $e) {
-      if ($e->response->http_code == 404) {
-        // Not subscribed give more helpful error.
-        $this->fail("Expected contact $contact[email] to be in the list at Mailchimp, but MC said resource not found; i.e. not subscribed.");
-      }
-      throw $e;
-    }
-    $this->assertEquals($state, $result->data->status);
-  }
-  
-  /**
-   * Check that the contact's email is not a member of the test list.
-   *
-   * @param array $contact e.g. static::$civicrm_contact_1
-   */
-  public function assertContactNotListMember($contact) {
-    $api = CRM_Mailchimp_Utils::getMailchimpApi();
-    try {
-      $subscriber_hash = static::$civicrm_contact_1['subscriber_hash'];
-      $result = $api->get("/lists/" . static::$test_list_id . "/members/$contact[subscriber_hash]", ['fields' => 'status']);
-    }
-    catch (CRM_Mailchimp_RequestErrorException $e) {
-      $this->assertEquals(404, $e->response->http_code);
-    }
-  }
-  
-  /**
-   * Sugar function for adjusting fixture: uses CiviCRM API to add contact to
-   * the membership group.
-   *
-   * Used a lot in the tests.
-   *
-   * @param array $contact Set to static::$civicrm_contact_{1,2}
-   */
-  public function joinMembershipGroup($contact, $disable_post_hooks=FALSE) {
-    return $this->joinGroup($contact, static::$civicrm_group_id_membership, $disable_post_hooks);
-  }
-  
-  /**
-   * Sugar function for adjusting fixture: uses CiviCRM API to add contact to
-   * the group specified.
-   *
-   * Used a lot in the tests.
-   *
-   * @param array $contact Set to static::$civicrm_contact_{1,2}
-   * @param int   $group_id Set to
-   *              static::$civicrm_group_id_interest_{1,2}
-   */
-  public function joinGroup($contact, $group_id, $disable_post_hooks=FALSE) {
-    // Subscription at Mailchimp happens via the post hook. As that hook is also
-    // run in user contexts it errors with CRM_Core_Session::setMessage(),
-    // rather than an exception which may cause problems for the user. So we
-    // have to look for and catch these errors via the session.
 
-    // Ensure we have no session status message.
-    $session = CRM_Core_Session::singleton();
-    $session->getStatus(TRUE);
-
-    if ($disable_post_hooks) {
-      $original_state = CRM_Mailchimp_Utils::$post_hook_enabled;
-      CRM_Mailchimp_Utils::$post_hook_enabled = FALSE;
-    }
-    $result = civicrm_api3('GroupContact', 'create', [
-      'sequential' => 1,
-      'group_id' => $group_id,
-      'contact_id' => $contact['contact_id'],
-      'status' => "Added",
-    ]);
-    if ($disable_post_hooks) {
-      CRM_Mailchimp_Utils::$post_hook_enabled = $original_state;
-    }
-    $errors = $session->getStatus(TRUE);
-    if ($errors) {
-      // Throw it to break the tests.
-      throw new Exception($errors[0]['text']);
-    }
-    return $result;
-  }
-  
-  /**
-   * Sugar function for adjusting fixture: uses CiviCRM API to 'remove' contact
-   * from the group specified.
-   *
-   * @param array $contact Set to static::$civicrm_contact_{1,2}
-   * @param int   $group_id Set to
-   *              static::$civicrm_group_id_interest_{1,2}
-   */
-  public function removeGroup($contact, $group_id, $disable_post_hooks=FALSE) {
-    if ($disable_post_hooks) {
-      $original_state = CRM_Mailchimp_Utils::$post_hook_enabled;
-      CRM_Mailchimp_Utils::$post_hook_enabled = FALSE;
-    }
-    $result = civicrm_api3('GroupContact', 'create', [
-      'sequential' => 1,
-      'group_id' => $group_id,
-      'contact_id' => $contact['contact_id'],
-      'status' => "Removed",
-    ]);
-    if ($disable_post_hooks) {
-      CRM_Mailchimp_Utils::$post_hook_enabled = $original_state;
-    }
-    return $result;
-  }
-  
-  /**
-   * Sugar function for adjusting fixture: uses CiviCRM API to delete all
-   * GroupContact records between the contact and the group specified.
-   *
-   * @param array $contact Set to static::$civicrm_contact_{1,2}
-   * @param int   $group_id Set to
-   *              static::$civicrm_group_id_interest_{1,2}
-   */
-  public function deleteGroup($contact, $group_id, $disable_post_hooks=FALSE) {
-    if ($disable_post_hooks) {
-      $original_state = CRM_Mailchimp_Utils::$post_hook_enabled;
-      CRM_Mailchimp_Utils::$post_hook_enabled = FALSE;
-    }
-    $result = civicrm_api3('GroupContact', 'delete', [
-      'group_id' => $group_id,
-      'contact_id' => $contact['contact_id'],
-    ]);
-    if ($disable_post_hooks) {
-      CRM_Mailchimp_Utils::$post_hook_enabled = $original_state;
-    }
-    return $result;
-  }
-  
-  /**
-   * Assert that a contact exists in the given CiviCRM group.
-   */
-  public function assertContactIsInGroup($contact_id, $group_id) {
-    $result = civicrm_api3('Contact', 'getsingle', ['group' => $group_id, 'id' => $contact_id]);
-    $this->assertEquals($contact_id, $result['contact_id']);
-  }
-  
-  /**
-   * Assert that a contact does not exist in the given CiviCRM group.
-   */
-  public function assertContactIsNotInGroup($contact_id, $group_id, $msg=NULL) {
-    // Initial sanity checks.
-    $this->assertGreaterThan(0, $contact_id);
-    $this->assertGreaterThan(0, $group_id);
-    // Fetching the contact should work.
-    $result = civicrm_api3('Contact', 'getsingle', ['id' => $contact_id]);
-    try {
-      // ...But not if we filter for this group.
-      $result = civicrm_api3('Contact', 'getsingle', ['group' => $group_id, 'id' => $contact_id]);
-      if ($msg === NULL) {
-        $msg = "Contact '$contact_id' should not be in group '$group_id', but is.";
-      }
-      $this->fail($msg);
-    }
-    catch (CiviCRM_API3_Exception $e) {
-      $x=1;
-    }
-  }
 }

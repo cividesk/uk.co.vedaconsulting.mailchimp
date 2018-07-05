@@ -298,6 +298,10 @@ class CRM_Mailchimp_Sync {
         continue;
       }
 
+      if (!(filter_var($email, FILTER_VALIDATE_EMAIL))) { 
+        continue;
+      }
+
       // Find out the ID's of the groups the $contact belongs to, and
       // save in $info.
       $info = $this->getComparableInterestsFromCiviCrmGroups($contact['groups'], $mode);
@@ -311,9 +315,31 @@ class CRM_Mailchimp_Sync {
       //          email,           first name,      last name,      groupings
       // See note above about why we don't include email in the hash.
       // $hash = md5($email . $contact['first_name'] . $contact['last_name'] . $info);
-      $hash = md5($contact['first_name'] . $contact['last_name'] . $info);
+      $hash = md5($contact['first_name'] . $contact['last_name'] . $info . $contact['id']);
       // run insert prepared statement
-      $db->execute($insert, array($contact['id'], $email, $contact['first_name'], $contact['last_name'], $hash, $info));
+      try {
+        $db->execute($insert, array(
+          $contact['id'],
+          trim($email),
+          $contact['first_name'],
+          $contact['last_name'],
+          $hash,
+          $info
+        ));
+      }
+      catch (PEAR_Exception $e) {
+        if (get_class($e->getCause()) == 'DB_Error') {
+          // Oops, issue #225.
+          // https://github.com/veda-consulting/uk.co.vedaconsulting.mailchimp/issues/225
+          // I have no time to fix this right now, but we can at least log it
+          // instead of crashing the sync.
+          CRM_Mailchimp_Utils::checkDebug("Issue #225 for {$contact['first_name']} {$contact['last_name']} ({$email}), list ID: {$this->list_id}.");
+        }
+        else {
+          // Something else. Rethrow.
+          throw $e;
+        }
+      }
       $collected++;
     }
 
@@ -518,7 +544,7 @@ class CRM_Mailchimp_Sync {
       m.interests m_interests, m.first_name m_first_name, m.last_name m_last_name,
       m.email m_email
       FROM tmp_mailchimp_push_c c
-      LEFT JOIN tmp_mailchimp_push_m m ON c.contact_id = m.cid_guess;");
+      LEFT JOIN tmp_mailchimp_push_m m ON c.email = m.email;");
 
     $url_prefix = "/lists/$this->list_id/members/";
     $changes = $additions = 0;
@@ -592,8 +618,16 @@ class CRM_Mailchimp_Sync {
     }
 
     if (!$this->dry_run && !empty($operations)) {
-      CRM_Mailchimp_Utils::checkDebug("Batching operations: " . print_r($operations, 1));
-      $result = $api->batchAndWait($operations);
+      // Don't print_r all operations in the debug, because deserializing
+      // allocates way too much memory if you have thousands of operations.
+      // Also split batches in blocks of MAILCHIMP_MAX_REQUEST_BATCH_SIZE to
+      // avoid memory limit problems.
+      $batches = array_chunk($operations, MAILCHIMP_MAX_REQUEST_BATCH_SIZE, TRUE);
+      foreach ($batches as &$batch) {
+        CRM_Mailchimp_Utils::checkDebug("Batching " . count($batch) . " operations. ");
+        $api->batchAndWait($batch);
+      }
+      unset($batch);
     }
 
     return ['additions' => $additions, 'updates' => $changes, 'unsubscribes' => $unsubscribes];
@@ -1124,6 +1158,10 @@ class CRM_Mailchimp_Sync {
     $result = civicrm_api3('Contact', 'get', [
       'group' => $this->membership_group_id,
       'contact_id' => ['IN' => array_keys($candidates)],
+      'is_opt_out' => 0,
+      'do_not_email' => 0,
+      'on_hold' => 0,
+      'is_deceased' => 0,
       'return' => 'contact_id',
       ]);
     $in_group = $result['values'];
@@ -1245,10 +1283,12 @@ class CRM_Mailchimp_Sync {
           SELECT email, c.id AS contact_id
           FROM civicrm_email e
           JOIN civicrm_contact c ON e.contact_id = c.id AND c.is_deleted = 0
-          GROUP BY email
+          AND c.do_not_email = 0 AND c.do_not_mail = 0 AND c.is_opt_out = 0 AND e.on_hold = 0
+          GROUP BY email, c.id
           HAVING COUNT(DISTINCT c.id)=1
           ) uniques ON m.email = uniques.email
         SET m.cid_guess = uniques.contact_id
+        WHERE m.cid_guess IS NULL
         ");
   }
   /**
@@ -1273,11 +1313,12 @@ class CRM_Mailchimp_Sync {
           SELECT email, first_name, last_name, c.id AS contact_id
           FROM civicrm_email e
           JOIN civicrm_contact c ON e.contact_id = c.id AND c.is_deleted = 0
-          GROUP BY email, first_name, last_name
+          AND c.do_not_email = 0 AND c.do_not_mail = 0 AND c.is_opt_out = 0 AND e.on_hold = 0
+          GROUP BY email, first_name, last_name, c.id
           HAVING COUNT(DISTINCT c.id)=1
           ) uniques ON m.email = uniques.email AND m.first_name = uniques.first_name AND m.last_name = uniques.last_name
         SET m.cid_guess = uniques.contact_id
-        WHERE m.first_name != '' AND m.last_name != ''
+        WHERE m.first_name != '' AND m.last_name != ''  AND m.cid_guess IS NULL
         ");
   }
   /**
@@ -1405,7 +1446,7 @@ class CRM_Mailchimp_Sync {
     }
 
     $name_changed = FALSE;
-    if ($civi_details['first_name'] && $civi_details['first_name'] != $mailchimp_details['first_name']) {
+    if ($civi_details['first_name'] && trim($civi_details['first_name']) != trim($mailchimp_details['first_name'])) {
       $name_changed = TRUE;
       // First name mismatch.
       if (isset($merge_fields['FNAME'])) {
@@ -1413,7 +1454,7 @@ class CRM_Mailchimp_Sync {
         $params['merge_fields']['FNAME'] = $civi_details['first_name'];
       }
     }
-    if ($civi_details['last_name'] && $civi_details['last_name'] != $mailchimp_details['last_name']) {
+    if ($civi_details['last_name'] && trim($civi_details['last_name']) != trim($mailchimp_details['last_name'])) {
       $name_changed = TRUE;
       if (isset($merge_fields['LNAME'])) {
         // LNAME field exists, so set it.
